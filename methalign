@@ -1,0 +1,238 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings 'FATAL' => 'all';
+use threads;
+use Thread::Queue;
+use Getopt::Std;
+our ($opt_p, $opt_t, $opt_w, $opt_d);
+getopts('p:t:w:d');
+
+#######
+# CLI #
+#######
+
+my $PERCENT = 90;
+my $THREADS = 4;
+my $WRAP    = 50;
+my $DEBUG = 0;
+
+die "
+usage: $0 [options] <fasta> <fastq>
+options:
+  -p <int>  percent identity (AGs) minimum [$PERCENT]
+  -t <int>  threads [$THREADS]
+  -w <int>  wrap [$WRAP]
+  -d        debug mode (keep temp dir)
+" unless @ARGV == 2;
+my ($FASTA, $FASTQ) = @ARGV;
+
+$PERCENT = $opt_p if $opt_p;
+$THREADS = $opt_t if $opt_t;
+$WRAP    = $opt_w if $opt_w;
+$DEBUG   = $opt_d if $opt_d;
+
+#########
+# SETUP #
+#########
+
+# emboss needle required
+my $needle = `which needle`;
+die "emboss needle required\n" unless $needle;
+
+# temporary directory for work
+my $WDIR = "temp.$$.methalign";
+mkdir $WDIR;
+
+# reference fasta
+open(my $fh, $FASTA) or die;
+open(my $of, ">$WDIR/ref.fa") or die;
+print $of ">r\n";
+my $head = <$fh>;
+my $REF;
+while (<$fh>) {
+	print $of $_;
+	chomp;
+	$REF .= $_;
+}
+close $of;
+close $fh;
+
+# reads fastq - check for duplicates
+my %read;
+open(my $fq, $FASTQ) or die;
+while (<$fq>) {
+	my $s = <$fq>;
+	my $x = <$fq>;
+	my $q = <$fq>;
+	chomp $s;
+	$read{$s}++;
+}
+my $dups = 0;
+foreach my $s (keys %read) {$dups++ if $read{$s} > 1}
+if ($dups) {print STDERR "$dups duplicates found and skipped\n"}
+
+# scoring matrix - embedded here so no external dependancies
+open(my $mf, ">$WDIR/mat") or die;
+print $mf
+"
+A   C   G   T
+A   1  -1  -1  -1
+C  -1   1  -1   1
+G  -1  -1   1  -1
+T  -1  -1  -1   1
+";
+close $mf;
+
+END {
+	system("rm -rf $WDIR") if defined $WDIR and not $DEBUG;
+}
+
+#######################
+# PAIRWISE ALIGNMENTS #
+#######################
+
+my $queries = new Thread::Queue; # query sequences
+my $results = new Thread::Queue; # results
+$queries->enqueue(keys %read);
+$queries->end();
+
+my @worker;
+for (my $i = 0; $i < $THREADS; $i++) {
+	push @worker, threads->create(\&align, $queries, $results)
+}
+foreach my $worker (@worker) {$worker->join}
+$results->end();
+
+my @align;
+my $skipped = 0;
+while ($results->pending) {
+	my $align = $results->dequeue;
+	if (100 * $align->{'pct'} < $PERCENT) {
+		$skipped++;
+		next;
+	}
+	push @align, $align;
+}
+print STDERR "$skipped alignments below $PERCENT\% skipped\n";
+
+if (@align == 0) {
+	print STDERR "no alignments to process\n";
+	exit(0);
+}
+
+#######################
+# REFERNCE ALIGNMENTS #
+#######################
+
+my @aseq;
+foreach my $align (@align) {
+	my $as;
+	for (my $i = 0; $i < length($align->{'seq'}); $i++) {
+		my $rnt = substr($align->{'ref'}, $i, 1);
+		my $snt = substr($align->{'seq'}, $i, 1);
+		next if $rnt eq '-';
+		$as .= $snt;
+	}
+	push @aseq, $as;
+}
+
+my $wrap = 50;
+for (my $i = 0; $i < length($REF); $i += $WRAP) {
+	my $r = substr($REF, $i, $WRAP);
+	print($i+1, "\t$r\t", $i+length($r), "\n");
+	foreach my $s (@aseq) {
+		print("\t", substr($s, $i, $WRAP), "\n");
+	}
+	print "\n";
+}
+
+########################
+# POSITION INFORMATION #
+########################
+
+my @NT = qw(A C G T);
+print join("\t", 'POS', 'REF', @NT), "\n";
+for (my $i = 0; $i < length($REF); $i++) {
+	my %count = ('A' => 0, 'C' => 0, 'G' => 0, 'T' => 0);
+	my $r = substr($REF, $i, 1);
+	foreach my $s (@aseq) {
+		my $snt = substr($s, $i, 1);
+		$count{$snt}++;
+	}
+	print join("\t", $i+1, $r);
+	foreach my $nt (@NT) {
+		print "\t", $count{$nt};
+	}
+	print "\n";	
+}
+
+#############
+# FUNCTIONS #
+#############
+
+sub anti {
+	my ($seq) = @_;
+	$seq =~ tr/ACGT/TGCA/;
+	$seq = reverse $seq;
+	return $seq;
+}
+
+sub needle {
+	my ($seq) = @_;
+	
+	my $tid = threads->tid;
+	open(my $sf, ">$WDIR/$tid.fa") or die;
+	print $sf ">s\n$seq\n";
+	close $sf;
+	
+	my @param = (
+		"-asequence $WDIR/ref.fa -bsequence $WDIR/$tid.fa",
+		"-gapopen 3 -gapextend 1 -datafile $WDIR/mat -endweight",
+		"-outfile $WDIR/$tid.out 2>/dev/null"
+	);
+		
+	system("needle @param") == 0 or die;
+	
+	open(my $fh, "$WDIR/$tid.out") or die;
+	my $ra;
+	my $sa;
+	my $score;
+	while (<$fh>) {
+		if (/^# Score:\s+(\S+)/) {$score = $1}
+		if (/^([rs])\s+\d+\s+(\S+)\s+\d+/) {
+			if ($1 eq 'r') {$ra .= $2}
+			if ($1 eq 's') {$sa .= $2}
+		}
+	}
+
+	my $match = 0;
+	my $total = 0;
+	for (my $i = 0; $i < length($ra); $i++) {
+		my $r = substr($ra, $i, 1);
+		my $s = substr($sa, $i, 1);
+		next if $r eq '-' or $s eq '-';
+		next unless $r eq 'A' or $r eq 'G';
+		if ($r eq $s) {$match++}
+		$total++;
+	}
+	
+	return {'ref' => $ra, 'seq' => $sa, 'pct' => $match/$total};
+}
+
+sub align {
+	my ($q, $results) = @_;
+	
+	my $tid = threads->tid;	
+	my @stuff;
+	while ($q->pending) {
+		my $plus = $q->dequeue;
+		my $anti = anti($plus);
+		
+		my $a1 = needle($plus);
+		my $a2 = needle($anti);
+		my $max = $a1->{pct} > $a2->{pct} ? $a1 : $a2;
+		push @stuff, $max;
+	}
+	$results->enqueue(@stuff);
+}
