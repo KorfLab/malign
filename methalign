@@ -76,7 +76,7 @@ if ($dups) {print STDERR "$dups duplicates found and skipped\n"}
 open(my $mf, ">$WDIR/mat") or die;
 print $mf
 "
-A   C   G   T
+    A   C   G   T
 A   1  -1  -1  -1
 C  -1   1  -1   1
 G  -1  -1   1  -1
@@ -114,7 +114,8 @@ while ($results->pending) {
 	}
 	push @align, $align;
 }
-print STDERR "$skipped alignments below $PERCENT\% skipped\n";
+print STDERR "$skipped alignments below $PERCENT\% skipped (",
+	scalar(@align), " total)\n";
 
 if (@align == 0) {
 	print STDERR "no alignments to process\n";
@@ -179,22 +180,24 @@ sub anti {
 }
 
 sub needle {
-	my ($seq) = @_;
+	my ($seq, $strand) = @_;
 	
 	my $tid = threads->tid;
-	open(my $sf, ">$WDIR/$tid.fa") or die;
+	my $fasta = "$WDIR/$tid.$strand.fa";
+	my $out = "$WDIR/$tid.$strand.fa.out";
+	open(my $sf, ">$fasta") or die;
 	print $sf ">s\n$seq\n";
 	close $sf;
 	
 	my @param = (
-		"-asequence $WDIR/ref.fa -bsequence $WDIR/$tid.fa",
+		"-asequence $WDIR/ref.fa -bsequence $fasta",
 		"-gapopen 3 -gapextend 1 -datafile $WDIR/mat -endweight",
-		"-outfile $WDIR/$tid.out 2>/dev/null"
+		"-outfile $out 2>/dev/null"
 	);
 		
 	system("needle @param") == 0 or die;
 	
-	open(my $fh, "$WDIR/$tid.out") or die;
+	open(my $fh, $out) or die;
 	my $ra;
 	my $sa;
 	my $score;
@@ -225,14 +228,16 @@ sub align {
 	
 	my $tid = threads->tid;	
 	my @stuff;
+	my $n = 0;
 	while ($q->pending) {
 		my $plus = $q->dequeue;
 		my $anti = anti($plus);
 		
-		my $a1 = needle($plus);
-		my $a2 = needle($anti);
+		my $a1 = needle($plus, "$n+");
+		my $a2 = needle($anti, "$n-");
 		my $max = $a1->{pct} > $a2->{pct} ? $a1 : $a2;
 		push @stuff, $max;
+		$n++;
 	}
 	$results->enqueue(@stuff);
 }
