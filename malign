@@ -24,7 +24,9 @@ options:
   -p <int>  percent identity minimum [$PERCENT]
   -t <int>  threads [$THREADS]
   -w <int>  wrap [$WRAP]
-  -m        methyl-seq reads
+  -m        methyl mode
+              uses an asymmetric scoring matrix with C:T matching
+              computes percent identity from A/G only
   -d        debug mode (keep temp dir)
 " unless @ARGV == 2;
 my ($FASTA, $FASTQ) = @ARGV;
@@ -196,6 +198,7 @@ sub anti {
 sub needle {
 	my ($seq, $strand) = @_;
 	
+	# run needle
 	my $tid = threads->tid;
 	my $fasta = "$WDIR/$tid.$strand.fa";
 	my $out = "$WDIR/$tid.$strand.fa.out";
@@ -211,6 +214,7 @@ sub needle {
 		
 	system("needle @param") == 0 or die;
 	
+	# read output, capture aligment sequences and score
 	open(my $fh, $out) or die;
 	my $ra;
 	my $sa;
@@ -223,15 +227,22 @@ sub needle {
 		}
 	}
 
+	# compute gapless percent identity
 	my $match = 0;
 	my $total = 0;
 	for (my $i = 0; $i < length($ra); $i++) {
 		my $r = substr($ra, $i, 1);
 		my $s = substr($sa, $i, 1);
 		next if $r eq '-' or $s eq '-';
-		next unless $r eq 'A' or $r eq 'G';
-		if ($r eq $s) {$match++}
-		$total++;
+		if ($METHYL) {
+			if ($r eq 'A' or $r eq 'G') {
+				if ($r eq $s) {$match++}
+				$total++;
+			}
+		} else {
+			if ($r eq $s) {$match++}
+			$total++;
+		}
 	}
 	
 	return {'ref' => $ra, 'seq' => $sa, 'pct' => $match/$total};
