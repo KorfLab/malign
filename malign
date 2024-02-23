@@ -5,8 +5,8 @@ use warnings 'FATAL' => 'all';
 use threads;
 use Thread::Queue;
 use Getopt::Std;
-our ($opt_p, $opt_t, $opt_w, $opt_d);
-getopts('p:t:w:d');
+our ($opt_p, $opt_t, $opt_w, $opt_m, $opt_d);
+getopts('p:t:w:md');
 
 #######
 # CLI #
@@ -15,14 +15,16 @@ getopts('p:t:w:d');
 my $PERCENT = 90;
 my $THREADS = 4;
 my $WRAP    = 50;
-my $DEBUG = 0;
+my $METHYL  = 0;
+my $DEBUG   = 0;
 
 die "
 usage: $0 [options] <fasta> <fastq>
 options:
-  -p <int>  percent identity (AGs) minimum [$PERCENT]
+  -p <int>  percent identity minimum [$PERCENT]
   -t <int>  threads [$THREADS]
   -w <int>  wrap [$WRAP]
+  -m        methyl-seq reads
   -d        debug mode (keep temp dir)
 " unless @ARGV == 2;
 my ($FASTA, $FASTQ) = @ARGV;
@@ -30,6 +32,7 @@ my ($FASTA, $FASTQ) = @ARGV;
 $PERCENT = $opt_p if $opt_p;
 $THREADS = $opt_t if $opt_t;
 $WRAP    = $opt_w if $opt_w;
+$METHYL  = $opt_m if $opt_m;
 $DEBUG   = $opt_d if $opt_d;
 
 #########
@@ -38,7 +41,7 @@ $DEBUG   = $opt_d if $opt_d;
 
 # emboss needle required
 my $needle = `which needle`;
-die "emboss needle required\n" unless $needle;
+die "you must install 'emboss' and have 'needle' in you path\n" unless $needle;
 
 # temporary directory for work
 my $WDIR = "temp.$$.methalign";
@@ -72,17 +75,28 @@ my $dups = 0;
 foreach my $s (keys %read) {$dups++ if $read{$s} > 1}
 if ($dups) {print STDERR "$dups duplicates found and skipped\n"}
 
-# scoring matrix - embedded here so no external dependancies
-open(my $mf, ">$WDIR/mat") or die;
-print $mf
-"
+# scoring matrices - embedded here so no external dependancies
+
+my $normal_matrix = "
     A   C   G   T
 A   1  -1  -1  -1
 C  -1   1  -1   1
 G  -1  -1   1  -1
 T  -1  -1  -1   1
 ";
-close $mf;
+
+my $methyl_matrix = "
+    A   C   G   T
+A   1  -1  -1  -1
+C  -1   1  -1   1
+G  -1  -1   1  -1
+T  -1  -1  -1   1
+";
+
+open(my $mat, ">$WDIR/mat") or die;
+if ($METHYL) {$mat->print($methyl_matrix)}
+else         {$mat->print($normal_matrix)}
+close $mat;
 
 END {
 	system("rm -rf $WDIR") if defined $WDIR and not $DEBUG;
