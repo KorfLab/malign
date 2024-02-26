@@ -5,8 +5,8 @@ use warnings 'FATAL' => 'all';
 use threads;
 use Thread::Queue;
 use Getopt::Std;
-our ($opt_p, $opt_t, $opt_w, $opt_m, $opt_d);
-getopts('p:t:w:md');
+our ($opt_p, $opt_t, $opt_w,$opt_d, $opt_m, $opt_f);
+getopts('p:t:w:d:mf');
 
 #######
 # CLI #
@@ -16,7 +16,8 @@ my $PERCENT = 90;
 my $THREADS = 4;
 my $WRAP    = 50;
 my $METHYL  = 0;
-my $DEBUG   = 0;
+my $TEMPDIR = '';
+my $FORCE   = 0;
 
 die "
 usage: $0 [options] <fasta> <fastq>
@@ -24,10 +25,12 @@ options:
   -p <int>  percent identity minimum [$PERCENT]
   -t <int>  threads [$THREADS]
   -w <int>  wrap [$WRAP]
+  -d <path> create and keep a named working directory for temp files
   -m        methyl mode
               uses an asymmetric scoring matrix with C:T matching
               computes percent identity from A/G only
-  -d        debug mode (keep temp dir)
+  -f        force rewrite over named working directory
+
 " unless @ARGV == 2;
 my ($FASTA, $FASTQ) = @ARGV;
 
@@ -35,7 +38,8 @@ $PERCENT = $opt_p if $opt_p;
 $THREADS = $opt_t if $opt_t;
 $WRAP    = $opt_w if $opt_w;
 $METHYL  = $opt_m if $opt_m;
-$DEBUG   = $opt_d if $opt_d;
+$TEMPDIR = $opt_d if $opt_d;
+$FORCE   = $opt_f if $opt_f;
 
 #########
 # SETUP #
@@ -45,9 +49,17 @@ $DEBUG   = $opt_d if $opt_d;
 my $needle = `which needle`;
 die "you must install 'emboss' and have 'needle' in you path\n" unless $needle;
 
-# temporary directory for work
-my $WDIR = "temp.$$.methalign";
-mkdir $WDIR;
+# temporary directory: named or not
+my $WDIR;
+if ($TEMPDIR) {
+	if (-d $TEMPDIR) {
+		die "$TEMPDIR already exists, will not overwrite\n" unless $FORCE;
+	}
+	$WDIR = $TEMPDIR;
+} else {
+	$WDIR = "temp.$$.methalign";
+}
+mkdir $WDIR if not -d $TEMPDIR;	
 
 # reference fasta
 open(my $fh, $FASTA) or die;
@@ -101,7 +113,7 @@ else         {$mat->print($normal_matrix)}
 close $mat;
 
 END {
-	system("rm -rf $WDIR") if defined $WDIR and not $DEBUG;
+	system("rm -rf $WDIR") if defined $WDIR and not $TEMPDIR;
 }
 
 #######################

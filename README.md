@@ -20,8 +20,7 @@ conda create --name emboss emboss
 conda activate emboss
 ```
 
-malign performs global pairwise alignments using EMBOSS `needle`. Global
-alignment is not computationally efficient: it is slow and uses a lot of
+Global alignment is not computationally efficient: it is slow and uses a lot of
 memory. For this reason, the reference sequence should be a fragment just large
 enough to cover the amplion region.
 
@@ -36,22 +35,29 @@ options:
   -p <int>  percent identity minimum [90]
   -t <int>  threads [4]
   -w <int>  wrap [50]
+  -d <path> create and keep a named working directory for temp files
   -m        methyl mode
               uses an asymmetric scoring matrix with C:T matching
               computes percent identity from A/G only
-  -d        debug mode (keep temp dir)
+  -f        force rewrite over named working directory
 ```
 
 Notes:
 
-(1) By default, alignment is performed with a +1/-1 scoring matrix. in "methly
-mode", the scoring matrix give +1 to C:T matches in one direction and -1 in the
-other.
+(1) By default, alignment is performed with a +1/-1 scoring matrix. in "methyl
+mode", the scoring matrix gives +1 to C:T matches in one direction and -1 in
+the other.
 
 (2) Percent identity is calculated by ignoring gaps. In "methyl mode", percent
-identity is calculated from the As and Gs in the reference sequence.
+identity is calculated from only the As and Gs in the reference sequence.
 
-(3) If you're wondering why some reads are skipped, turn on "debug mode". You
-will find all of the sequences and pairwise alignments in a temporary
-directory.
+(3) To examine the temporary files, use the `-d` option to keep the working
+directory. This contains all of the intermediate FASTA files and pairwise
+alignments.
 
+
+## Example ##
+
+```
+malign -md build reference.fa reads.fq
+```
