@@ -1,26 +1,30 @@
+####################
+## load libraries ##
+####################
 import argparse
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import sys
 
-def calculate_percentages(df):
-    total_counts = df[['A', 'C', 'G', 'T']].sum().sum()
-    percent_C = (df['C'].sum() / total_counts) * 100
-    percent_T = (df['T'].sum() / total_counts) * 100
-    return percent_C, percent_T
-
-def main():
+#######################
+## argument parsing  ##
+#######################
+def parse_arguments():
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Process alignment data and generate plots.')
     parser.add_argument('input_file', type=str, help='Path to the input alignment file')
     parser.add_argument('output_dir', type=str, help='Path to the directory where output files will be saved')
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    file_path = args.input_file
-    output_dir = args.output_dir
-
+##########################
+## data processing      ##
+##########################
+def load_data(file_path):
+    """Load and preprocess the data from file."""
     headers = ["POS", "REF", "A", "C", "G", "T"]
-
+    
+    # Find headers line
     headers_line_number = None
     with open(file_path, 'r') as file:
         for line_number, line in enumerate(file):
@@ -31,44 +35,50 @@ def main():
     if headers_line_number is None:
         raise ValueError("Headers (POS, REF, A, C, G, T) not found in the file.")
 
+    # Load and clean data
     df = pd.read_csv(file_path, delimiter='\s+', skiprows=headers_line_number, names=headers)
     df = df[df['POS'] != 0]
     df = df[df['POS'] != 'POS']
+    
+    # Convert to numeric
+    numeric_cols = ['POS', 'A', 'C', 'G', 'T']
+    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
+    
+    return df.dropna()
 
-    df['POS'] = pd.to_numeric(df['POS'], errors='coerce')
-    df['A'] = pd.to_numeric(df['A'], errors='coerce')
-    df['C'] = pd.to_numeric(df['C'], errors='coerce')
-    df['G'] = pd.to_numeric(df['G'], errors='coerce')
-    df['T'] = pd.to_numeric(df['T'], errors='coerce')
+def filter_cpg_sites(df):
+    """Filter dataframe to only CpG sites (where REF = C and next REF = G)."""
+    return df[(df['REF'] == 'C') & (df['REF'].shift(-1) == 'G')]
 
-    df = df.dropna()
+def save_data(df, file_path):
+    """Save dataframe to CSV file."""
+    df.to_csv(file_path, index=False)
+    print(f"DataFrame saved to {file_path}")
 
-    output_csv_path = f'{output_dir}/matrix.csv'
-    df.to_csv(output_csv_path, index=False)
-    print(f"Filtered DataFrame saved to {output_csv_path}")
+###########################
+## calculate methylation ##
+###########################
+def calculate_percentages(df):
+    """Calculate C and T percentages from nucleotide counts."""
+    total_counts = df[['A', 'C', 'G', 'T']].sum().sum()
+    percent_C = (df['C'].sum() / total_counts) * 100
+    percent_T = (df['T'].sum() / total_counts) * 100
+    return percent_C, percent_T
 
-    df_ref_c = df[(df['REF'] == 'C') & (df['REF'].shift(-1) == 'G')]
-    output_csv_path_ref_c = f'{output_dir}/matrix_ref_c.csv'
-    df_ref_c.to_csv(output_csv_path_ref_c, index=False)
-    print(f"Filtered DataFrame (REF = C and next REF = G) saved to {output_csv_path_ref_c}")
-
-    print("Original Filtered DataFrame:")
-    print(df)
-    print("\nDataFrame where REF = 'C' and next REF = 'G':")
-    print(df_ref_c)
-
-    # First plot (all data)
+##########################
+## plotting functions   ##
+##########################
+def create_plot(df, title, output_path, percentages):
+    """Create and save a line plot of nucleotide counts."""
     plt.figure(figsize=(10, 6))
-    plt.plot(df['POS'], df['A'], label='A', alpha=0.7)
-    plt.plot(df['POS'], df['C'], label='C', alpha=0.7)
-    plt.plot(df['POS'], df['G'], label='G', alpha=0.7)
-    plt.plot(df['POS'], df['T'], label='T', alpha=0.7)
+    for nucleotide in ['A', 'C', 'G', 'T']:
+        plt.plot(df['POS'], df[nucleotide], label=nucleotide, alpha=0.7)
 
     plt.xlabel('POS (Position)')
     plt.ylabel('Count')
-    plt.title('Line Plot of Nucleotide Counts by Position (All Data)')
+    plt.title(title)
 
-    percent_C, percent_T = calculate_percentages(df)
+    percent_C, percent_T = percentages
     legend = plt.legend(title='Nucleotide', bbox_to_anchor=(1.02, 1), loc='upper left')
 
     # Add percentages below the legend
@@ -77,33 +87,37 @@ def main():
              bbox=dict(facecolor='white', alpha=0.8))
 
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/line_plot_all_data.pdf', bbox_inches='tight')
-    print("First plot saved as line_plot_all_data.pdf")
+    plt.savefig(output_path, bbox_inches='tight')
+    print(f"Plot saved as {output_path}")
     plt.show()
 
-    # Second plot (CpG only)
-    plt.figure(figsize=(10, 6))
-    plt.plot(df_ref_c['POS'], df_ref_c['A'], label='A', alpha=0.7)
-    plt.plot(df_ref_c['POS'], df_ref_c['C'], label='C', alpha=0.7)
-    plt.plot(df_ref_c['POS'], df_ref_c['G'], label='G', alpha=0.7)
-    plt.plot(df_ref_c['POS'], df_ref_c['T'], label='T', alpha=0.7)
-
-    plt.xlabel('POS (Position)')
-    plt.ylabel('Count')
-    plt.title('Line Plot of Nucleotide Counts by Position (CpG Only)')
-
-    percent_C_cpg, percent_T_cpg = calculate_percentages(df_ref_c)
-    legend = plt.legend(title='Nucleotide', bbox_to_anchor=(1.02, 1), loc='upper left')
-
-    # Add percentages below the legend
-    plt.text(1.02, 0.75, f'C: {percent_C_cpg:.2f}%\nT: {percent_T_cpg:.2f}%', 
-             transform=plt.gca().transAxes, fontsize=12, verticalalignment='top', horizontalalignment='left',
-             bbox=dict(facecolor='white', alpha=0.8))
-
-    plt.tight_layout()
-    plt.savefig(f'{output_dir}/line_plot_cpg_only.pdf', bbox_inches='tight')
-    print("Second plot saved as line_plot_cpg_only.pdf")
-    plt.show()
+##########################
+## main function        ##
+##########################
+def main():
+    # Parse arguments
+    args = parse_arguments()
+    
+    # Load and process data
+    df = load_data(args.input_file)
+    df_ref_c = filter_cpg_sites(df)
+    
+    # Save data
+    save_data(df, f'{args.output_dir}/matrix.csv')
+    save_data(df_ref_c, f'{args.output_dir}/matrix_ref_c.csv')
+    
+    # Print data summaries
+    print("Original Filtered DataFrame:")
+    print(df)
+    print("\nDataFrame where REF = 'C' and next REF = 'G':")
+    print(df_ref_c)
+    
+    # Create plots
+    create_plot(df, 'Line Plot of Nucleotide Counts by Position (All Data)', 
+                f'{args.output_dir}/line_plot_all_data.pdf', calculate_percentages(df))
+    
+    create_plot(df_ref_c, 'Line Plot of Nucleotide Counts by Position (CpG Only)', 
+                f'{args.output_dir}/line_plot_cpg_only.pdf', calculate_percentages(df_ref_c))
 
 if __name__ == "__main__":
     main()
