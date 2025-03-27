@@ -62,11 +62,18 @@ alignments.
 malign -md build reference.fa reads.fq
 ```
 
+## Example maligner2 ##
+
+```
+python3 maligner2.py -m -p 70 new_reference.fa sample_name.fastq
+```
 ## Output example ##
-```results/
+```
+results/
 └── sample_name/
     ├── sample_name_matrix.csv
     ├── sample_name_matrix_ref_c.csv
     ├── sample_name_line_plot_all_data.pdf
     ├── sample_name_line_plot_cpg_only.pdf
-    └── sample_name_reference.txt ```
+    └── sample_name_reference.txt
+```
