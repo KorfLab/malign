@@ -23,7 +23,6 @@ def parse_arguments():
     # Required arguments
     parser.add_argument('fasta', help='Reference FASTA file')
     parser.add_argument('fastq', help='Query FASTQ file')
-    parser.add_argument('output_dir', help='Directory for output files')
     
     # Alignment options
     parser.add_argument('-p', '--percent', type=int, default=90,
@@ -40,6 +39,16 @@ def parse_arguments():
                        help='Force rewrite over named working directory')
     
     return parser.parse_args()
+
+def get_sample_name(fastq_path):
+    """Extract sample name from FASTQ filename."""
+    base = os.path.basename(fastq_path)
+    # Remove common extensions
+    for ext in ['.fastq', '.fq', '.fastq.gz', '.fq.gz']:
+        if base.endswith(ext):
+            base = base[:-len(ext)]
+            break
+    return base
 
 #######################
 ## Alignment Functions #
@@ -291,26 +300,34 @@ T  -1  -1  -1   1
     if not args.tempdir:
         shutil.rmtree(wdir)
     
-    return df
+    return df, ref_seq
 
-def run_visualization(df, output_dir):
+def run_visualization(df, sample_name, ref_seq):
     """Run the visualization portion of the pipeline."""
+    # Create output directory based on sample name
+    output_dir = os.path.join("results", sample_name)
     os.makedirs(output_dir, exist_ok=True)
     
     # Filter CpG sites
     df_ref_c = filter_cpg_sites(df)
     
     # Save data
-    df.to_csv(f'{output_dir}/matrix.csv', index=False)
-    df_ref_c.to_csv(f'{output_dir}/matrix_ref_c.csv', index=False)
-    print(f"Data saved to {output_dir}/matrix.csv and {output_dir}/matrix_ref_c.csv")
+    df.to_csv(f'{output_dir}/{sample_name}_matrix.csv', index=False)
+    df_ref_c.to_csv(f'{output_dir}/{sample_name}_matrix_ref_c.csv', index=False)
+    print(f"Data saved to {output_dir}/{sample_name}_matrix.csv and {output_dir}/{sample_name}_matrix_ref_c.csv")
     
     # Create plots
-    create_plot(df, 'Nucleotide Counts by Position (All Data)', 
-                f'{output_dir}/line_plot_all_data.pdf', calculate_percentages(df))
+    create_plot(df, f'Nucleotide Counts by Position - {sample_name} (All Data)', 
+                f'{output_dir}/{sample_name}_line_plot_all_data.pdf', calculate_percentages(df))
     
-    create_plot(df_ref_c, 'Nucleotide Counts by Position (CpG Only)', 
-                f'{output_dir}/line_plot_cpg_only.pdf', calculate_percentages(df_ref_c))
+    create_plot(df_ref_c, f'Nucleotide Counts by Position - {sample_name} (CpG Only)', 
+                f'{output_dir}/{sample_name}_line_plot_cpg_only.pdf', calculate_percentages(df_ref_c))
+    
+    # Save reference sequence
+    with open(f'{output_dir}/{sample_name}_reference.txt', 'w') as f:
+        f.write(ref_seq)
+    
+    return output_dir
 
 ##########################
 ## Main Function        #
@@ -320,11 +337,16 @@ def main():
     # Parse all arguments first
     args = parse_arguments()
     
+    # Get sample name from FASTQ filename
+    sample_name = get_sample_name(args.fastq)
+    
     # Run alignment pipeline
-    df = run_alignment(args)
+    df, ref_seq = run_alignment(args)
     
     # Run visualization pipeline
-    run_visualization(df, args.output_dir)
+    output_dir = run_visualization(df, sample_name, ref_seq)
+    
+    print(f"\nAll outputs saved to: {output_dir}")
 
 if __name__ == '__main__':
     main()
