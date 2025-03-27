@@ -61,3 +61,12 @@ alignments.
 ```
 malign -md build reference.fa reads.fq
 ```
+
+## Output example ##
+```results/
+└── sample_name/
+    ├── sample_name_matrix.csv
+    ├── sample_name_matrix_ref_c.csv
+    ├── sample_name_line_plot_all_data.pdf
+    ├── sample_name_line_plot_cpg_only.pdf
+    └── sample_name_reference.txt ```
