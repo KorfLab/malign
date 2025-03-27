@@ -50,9 +50,9 @@ def get_sample_name(fastq_path):
             break
     return base
 
-#######################
+########################
 ## Alignment Functions #
-#######################
+########################
 
 def anti(seq):
     """Return the reverse complement of a DNA sequence."""
@@ -132,9 +132,9 @@ def align_worker(q, results, ref_file, wdir, methyl_mode, mat_file):
     for item in alignments:
         results.put(item)
 
-##########################
+############################
 ## Visualization Functions #
-##########################
+############################
 
 def filter_cpg_sites(df):
     """Filter dataframe to only CpG sites (where REF = C and next REF = G)."""
@@ -170,7 +170,7 @@ def create_plot(df, title, output_path, percentages):
     print(f"Plot saved as {output_path}")
 
 ##########################
-## Pipeline Functions   #
+## Pipeline Functions   ##
 ##########################
 
 def run_alignment(args):
@@ -329,9 +329,9 @@ def run_visualization(df, sample_name, ref_seq):
     
     return output_dir
 
-##########################
-## Main Function        #
-##########################
+###################
+## Main Function ##
+###################
 
 def main():
     # Parse all arguments first
